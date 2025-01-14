@@ -1,7 +1,7 @@
 # Game Development, Computer Graphics and Windows Programming
 
 > Last README update on
-> 14:01:2024::22:04:46 IST
+> 14 January 2024::22:04:46 IST
 
 - I am learning Windows Programming, Computer Graphics and Game Development. This repository is my progress in learning these topics and daily practice. I will be using this for my future reference and to track my progress. Although anyone is free to use this repository for their learning. I have written QUESTION, ANSWER, and NOTES in the code to make it easier to understand.
 - I am using Visual Studio Code for this project, as I also want to learn about MSVC compiler, because Visaul Studio provides all the settings required automatically but I want to learn about how ot do it manually.
