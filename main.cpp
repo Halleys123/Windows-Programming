@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <windows.h>
+#include <stdint.h>
 
 #define INTERNAL static
 #define GLOBAL_VARIABLE static
@@ -17,39 +18,62 @@ GLOBAL_VARIABLE bool Running = true;
 // ANSWER(BitmapHandle): Handle to the bitmap object, used by application to manage the bitmap.
 GLOBAL_VARIABLE BITMAPINFO BitmapInfo;
 GLOBAL_VARIABLE void *BitmapMemory;
-GLOBAL_VARIABLE HBITMAP BitmapHandle;
+GLOBAL_VARIABLE int BitmapWidth;
+GLOBAL_VARIABLE int BitmapHeight;
 
 // INFO(ARNAV) DIB = Device Independent Bitmap
 INTERNAL void Win32ResizeDIBSection(int width, int height)
 {
-    if (BitmapHandle)
+    if (BitmapMemory)
     {
-        DeleteObject(BitmapHandle);
+        VirtualFree(BitmapMemory, 0, MEM_RELEASE);
     }
+
+    BitmapHeight = height; // TODO(ARNAV): Only for starting purpose remove later;
+    BitmapWidth = width;   // TODO(ARNAV): Only for starting purpose remove later;
 
     // INFO(ARNAV): bmiHeader structure defines the size, dimensions, and color format of a bitmap image.
     BitmapInfo.bmiHeader.biSize = sizeof(BitmapInfo.bmiHeader); // INFO(ARNAV): Size of the header
-    BitmapInfo.bmiHeader.biWidth = width;                       // INFO(ARNAV): Client width that means actual drawing width.
-    BitmapInfo.bmiHeader.biHeight = height;                     // INFO(ARNAV): Client height that means actual drawing height.
+    BitmapInfo.bmiHeader.biWidth = BitmapWidth;                 // INFO(ARNAV): Client width that means actual drawing width.
+    BitmapInfo.bmiHeader.biHeight = -BitmapHeight;              // INFO(ARNAV): Client height that means actual drawing height.
     BitmapInfo.bmiHeader.biPlanes = 1;                          // INFO(ARNAV): Always 1 kept for historical reasons.
     BitmapInfo.bmiHeader.biBitCount = 32;                       // INFO(ARNAV): Actually 24 bits are required 8 bits for each R, G, B but 32 bits are marked for it to be DWORD alligned which improves performance, The extra 8 bits are unused or can store an alpha channel for transparency.
     BitmapInfo.bmiHeader.biCompression = BI_RGB;                // INFO(ARNAV): This is used to store what is the compression method used for frame buffer
 
-    // QUESTION(UNSOLVED): What exactly is device context?
-    HDC DeviceContext = CreateCompatibleDC(0);
+    // QUESTION(UNSOLVED): What does negative biHeight means?
 
-    BitmapHandle = CreateDIBSection(
-        DeviceContext, &BitmapInfo,
-        DIB_RGB_COLORS,
-        &BitmapMemory,
-        0, 0);
+    int BytesPerPixel = 4;
+    // INFO(lpAddress): 0 means we don't care where we get the memory.
+    BitmapMemory = VirtualAlloc(0, BytesPerPixel * width * height, MEM_COMMIT, PAGE_READWRITE);
+
+    int Pitch = width * BytesPerPixel;
+    uint8_t *Row = (uint8_t *)BitmapMemory;
+    for (int y = 0; y < BitmapHeight; y++)
+    {
+        uint8_t *Pixel = (uint8_t *)Row;
+        for (int x = 0; x < BitmapWidth; x++)
+        {
+            *Pixel = 0xff;
+            ++Pixel;
+            *Pixel = 0x00;
+            ++Pixel;
+            *Pixel = 0x00;
+            ++Pixel;
+            *Pixel = 0x00;
+            ++Pixel;
+        }
+        Row += Pitch;
+    }
 }
 
-INTERNAL void Win32UpdateWindow(HDC DeviceContext, int x, int y, int width, int height)
+INTERNAL void Win32UpdateWindow(HDC DeviceContext, RECT *WindowRect, int x, int y, int width, int height)
 {
+    const int WindowWidth = WindowRect->right - WindowRect->left;
+    const int WindowHeight = WindowRect->bottom - WindowRect->top;
+
     StretchDIBits(DeviceContext,
-                  x, y, width, height,
-                  x, y, width, height,
+                  0, 0, BitmapWidth, BitmapHeight,
+                  0, 0, WindowWidth, WindowHeight,
                   BitmapMemory, &BitmapInfo, DIB_RGB_COLORS, SRCCOPY);
 }
 
@@ -110,7 +134,10 @@ LRESULT MainWindowCallback(HWND Window, UINT Message, WPARAM wParam, LPARAM lPar
         int width = Paint.rcPaint.right - X;
         int height = Paint.rcPaint.bottom - Y;
 
-        Win32UpdateWindow(DeviceContext, X, Y, width, height);
+        RECT ClientRect;
+        BOOL success = GetClientRect(Window, &ClientRect);
+
+        Win32UpdateWindow(DeviceContext, &ClientRect, X, Y, width, height);
 
         EndPaint(Window, &Paint);
     }
