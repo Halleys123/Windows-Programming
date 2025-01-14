@@ -6,6 +6,7 @@
 - I am learning Windows Programming, Computer Graphics and Game Development. This repository is my progress in learning these topics and daily practice. I will be using this for my future reference and to track my progress. Although anyone is free to use this repository for their learning. I have written QUESTION, ANSWER, and NOTES in the code to make it easier to understand.
 - I am using Visual Studio Code for this project, as I also want to learn about MSVC compiler, because Visaul Studio provides all the settings required automatically but I want to learn about how ot do it manually.
 - There are also some handwritten notes that I will be uploading on my website in future. I will provide the link here when I do that.
+- There is a `update.exe` file in root directory you can run it using `./update.exe timeinmiliseconds` and it will automatically check if any .cpp, .h file has changed and if it has changed it will run `make` command to compile the project. You can find the output in the `/bin` directory. You can also run `./update.exe` without any arguments and it will assume `timeinmiliseconds` to be `1` i.e. 1 millisecond.
 
 ## Directory Structure
 
