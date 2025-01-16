@@ -2,14 +2,14 @@
 #include <windows.h>
 #include <stdint.h>
 
-#define INTERNAL static
-#define GLOBAL_VARIABLE static
-#define PERSISTENT_VARIABLE static
+#include "./include/definitions.h"
+#include "./include/win32_window_dimensions.h"
+#include "./include/Functions/GetWindowDimensions.h"
 
 using namespace std;
 
 // Method 2 of closing window
-GLOBAL_VARIABLE bool Running = true;
+GLOBAL_VARIABLE bool GlobalRunning = true;
 
 // TODO(ARNAV:DONE) note all answers in physical notes as well.
 // QUESTION(SOLVED): What is the use of these three (BitmapInfo ,BitmapMemory, BitmapHandle)?
@@ -22,26 +22,28 @@ struct win32_offscreen_buffer
     void *Memory;
     int Width;
     int Height;
-} Bitmap;
+    int BytesPerPixel;
+};
+
+GLOBAL_VARIABLE win32_offscreen_buffer Bitmap = {0};
 
 // INFO(ARNAV) DIB = Device Independent Bitmap
 
-INTERNAL void Win32RenderWeirdGradient(int XOffset, int YOffset, int width, int BytesPerPixel)
+INTERNAL void
+Win32RenderWeirdGradient(int XOffset, int YOffset, win32_offscreen_buffer *Bitmap)
 {
-    int Pitch = width * BytesPerPixel;
-    uint8_t *Row = (uint8_t *)Bitmap.Memory;
-    for (int y = 0; y < Bitmap.Height; y++)
+    int Pitch = Bitmap->Width * Bitmap->BytesPerPixel;
+    uint8_t *Row = (uint8_t *)Bitmap->Memory;
+    for (int y = 0; y < Bitmap->Height; y++)
     {
         uint32_t *Pixel = (uint32_t *)Row;
-        for (int x = 0; x < Bitmap.Width; x++)
+        for (int x = 0; x < Bitmap->Width; x++)
         {
             // INFO(ARNAV): R is at last because the format is little endian.
-            // 00 00 00 00
-            // bb gg rr xx
-            // uint8_t Green = ((x) * 255) / BitmapWidth;
-            // uint8_t Blue = ((y) * 255) F/ BitmapHeight;
-            uint8_t Green = (((x + XOffset) * 255)) / Bitmap.Width;
-            uint8_t Blue = (((y + YOffset) * 255)) / Bitmap.Height;
+            uint8_t Green = (((x + XOffset) * 255));
+            uint8_t Blue = (((y + YOffset) * 255));
+            // uint8_t Green = (((x + XOffset) * 255)) / Bitmap->Width;
+            // uint8_t Blue = (((y + YOffset) * 255)) / Bitmap->Height;
             // *Pixel++ = (0xa1 | (Green << 16) | (Blue << 16));
             *Pixel++ = (0xa1 | (Green << 16) | (Blue << 8));
         }
@@ -50,23 +52,23 @@ INTERNAL void Win32RenderWeirdGradient(int XOffset, int YOffset, int width, int 
     }
 }
 
-INTERNAL void Win32ResizeDIBSection(int width, int height)
+INTERNAL void Win32ResizeDIBSection(int width, int height, win32_offscreen_buffer *Bitmap)
 {
-    if (Bitmap.Memory)
+    if (Bitmap->Memory)
     {
-        VirtualFree(Bitmap.Memory, 0, MEM_RELEASE);
+        VirtualFree(Bitmap->Memory, 0, MEM_RELEASE);
     }
 
-    Bitmap.Height = height; // TODO(ARNAV): Only for starting purpose remove later;
-    Bitmap.Width = width;   // TODO(ARNAV): Only for starting purpose remove later;
+    Bitmap->Height = height;
+    Bitmap->Width = width;
 
     // INFO(ARNAV): bmiHeader structure defines the size, dimensions, and color format of a bitmap image.
-    Bitmap.Info.bmiHeader.biSize = sizeof(Bitmap.Info.bmiHeader); // INFO(ARNAV): Size of the header
-    Bitmap.Info.bmiHeader.biWidth = Bitmap.Width;                 // INFO(ARNAV): Client width that means actual drawing width.
-    Bitmap.Info.bmiHeader.biHeight = -Bitmap.Height;              // INFO(ARNAV): Client height that means actual drawing height.
-    Bitmap.Info.bmiHeader.biPlanes = 1;                           // INFO(ARNAV): Always 1 kept for historical reasons.
-    Bitmap.Info.bmiHeader.biBitCount = 32;                        // INFO(ARNAV): Actually 24 bits are required 8 bits for each R, G, B but 32 bits are marked for it to be DWORD alligned which improves performance, The extra 8 bits are unused or can store an alpha channel for transparency.
-    Bitmap.Info.bmiHeader.biCompression = BI_RGB;                 // INFO(ARNAV): This is used to store what is the compression method used for frame buffer
+    Bitmap->Info.bmiHeader.biSize = sizeof(Bitmap->Info.bmiHeader); // INFO(ARNAV): Size of the header
+    Bitmap->Info.bmiHeader.biWidth = Bitmap->Width;                 // INFO(ARNAV): Client width that means actual drawing width.
+    Bitmap->Info.bmiHeader.biHeight = -Bitmap->Height;              // INFO(ARNAV): Client height that means actual drawing height.
+    Bitmap->Info.bmiHeader.biPlanes = 1;                            // INFO(ARNAV): Always 1 kept for historical reasons.
+    Bitmap->Info.bmiHeader.biBitCount = 32;                         // INFO(ARNAV): Actually 24 bits are required 8 bits for each R, G, B but 32 bits are marked for it to be DWORD alligned which improves performance, The extra 8 bits are unused or can store an alpha channel for transparency.
+    Bitmap->Info.bmiHeader.biCompression = BI_RGB;                  // INFO(ARNAV): This is used to store what is the compression method used for frame buffer
 
     // QUESTION(SOLVED): What does negative biHeight means?
     // ANSWER(-Height): When biHeight is negative, the bitmap is a top-down DIB This means that the origin of
@@ -74,20 +76,17 @@ INTERNAL void Win32ResizeDIBSection(int width, int height)
     // ANSWER(CONTINUED) the top row to the bottom row.
     // ANSWER(+Height): When biHeight is positive, the bitmap is a bottom-up DIB This means that the origin of the bitmap is the upper-left corner
 
-    int BytesPerPixel = 4;
+    Bitmap->BytesPerPixel = 4;
     // INFO(lpAddress): 0 means we don't care where we get the memory.
-    Bitmap.Memory = VirtualAlloc(0, BytesPerPixel * width * height, MEM_COMMIT, PAGE_READWRITE);
+    Bitmap->Memory = VirtualAlloc(0, Bitmap->BytesPerPixel * width * height, MEM_COMMIT, PAGE_READWRITE);
 }
 
-INTERNAL void Win32UpdateWindow(HDC DeviceContext, RECT ClientRect, int x, int y, int width, int height)
+INTERNAL void Win32UpdateWindow(HDC DeviceContext, int WindowWidth, int WindowHeight, int x, int y, int width, int height, win32_offscreen_buffer *Bitmap)
 {
-    const int WindowWidth = ClientRect.right - ClientRect.left;
-    const int WindowHeight = ClientRect.bottom - ClientRect.top;
-
     StretchDIBits(DeviceContext,
-                  0, 0, Bitmap.Width, Bitmap.Height,
                   0, 0, WindowWidth, WindowHeight,
-                  Bitmap.Memory, &Bitmap.Info, DIB_RGB_COLORS, SRCCOPY);
+                  0, 0, Bitmap->Width, Bitmap->Height,
+                  Bitmap->Memory, &Bitmap->Info, DIB_RGB_COLORS, SRCCOPY);
 }
 
 LRESULT MainWindowCallback(HWND Window, UINT Message, WPARAM wParam, LPARAM lParam)
@@ -103,28 +102,22 @@ LRESULT MainWindowCallback(HWND Window, UINT Message, WPARAM wParam, LPARAM lPar
     }
     case WM_SIZE:
     {
-        RECT ClientRect;
-        BOOL success = GetClientRect(Window, &ClientRect);
-        if (success > 0)
-        {
-            int width = ClientRect.right - ClientRect.left;
-            int height = ClientRect.bottom - ClientRect.top;
-            Win32ResizeDIBSection(width, height);
-        }
+        win32_window_dimensions Dimensions = GetWindowDimensions(Window);
+        Win32ResizeDIBSection(1280, 720, &Bitmap);
         OutputDebugStringA("WM_SIZE\n");
         break;
     }
     case WM_DESTROY:
     {
         DestroyWindow(Window); // Method 1 for closing window
-        Running = false;       // Method 2 for closing window
+        GlobalRunning = false; // Method 2 for closing window
         OutputDebugStringA("WM_DESTROY\n");
         break;
     }
     case WM_CLOSE:
     {
-        PostQuitMessage(0); // Method 1 for closing window
-        Running = false;    // Method 2 for closing window
+        PostQuitMessage(0);    // Method 1 for closing window
+        GlobalRunning = false; // Method 2 for closing window
         OutputDebugStringA("WM_CLOSE\n");
         break;
     }
@@ -147,10 +140,9 @@ LRESULT MainWindowCallback(HWND Window, UINT Message, WPARAM wParam, LPARAM lPar
         int width = Paint.rcPaint.right - X;
         int height = Paint.rcPaint.bottom - Y;
 
-        RECT ClientRect;
-        BOOL success = GetClientRect(Window, &ClientRect);
+        win32_window_dimensions Dimensions = GetWindowDimensions(Window);
 
-        Win32UpdateWindow(DeviceContext, ClientRect, X, Y, width, height);
+        Win32UpdateWindow(DeviceContext, Dimensions.Width, Dimensions.Height, X, Y, width, height, &Bitmap);
 
         EndPaint(Window, &Paint);
     }
@@ -167,11 +159,13 @@ LRESULT MainWindowCallback(HWND Window, UINT Message, WPARAM wParam, LPARAM lPar
 
 int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR CommandLine, int SHhwCode)
 {
+
     // AllocConsole();
     // freopen("CONOUT$", "w", stdout); // Redirect stdout to console
     // freopen("CONOUT$", "w", stderr); // Redirect stderr to console
     // printf("Console initialized\n");
 
+    int test[1024 * 1024 * 2] = {0};
     WNDCLASS WindowClass = {0};
 
     // INFO(HREDRAW): This option says that if we resize the window 'horizontally' then
@@ -194,7 +188,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR Command
             0,
             WindowClass.lpszClassName,
             "Making Game",
-            WS_OVERLAPPED | WS_VISIBLE | WS_SIZEBOX | WS_SYSMENU | WS_MAXIMIZEBOX,
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_SIZEBOX | WS_SYSMENU | WS_MAXIMIZEBOX,
             CW_USEDEFAULT, CW_USEDEFAULT,
             1024, 1024 * 9 / 16,
             NULL, NULL, hInstance, NULL);
@@ -213,21 +207,21 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR Command
             int WindowWidth = ClientRect.right - ClientRect.left;
             int WindowHeight = ClientRect.bottom - ClientRect.top;
 
-            while (Running)
+            while (GlobalRunning)
             {
                 while (PeekMessageA(&Message, 0, 0, 0, PM_REMOVE))
                 {
                     if (Message.message == WM_QUIT)
                     {
-                        Running = false;
+                        GlobalRunning = false;
                     }
                     TranslateMessage(&Message);
                     DispatchMessage(&Message);
                 }
 
-                Win32RenderWeirdGradient(x_offset, y_offset, BitmapWidth, 4);
-
-                Win32UpdateWindow(DeviceContext, ClientRect, 0, 0, WindowWidth, WindowHeight);
+                Win32RenderWeirdGradient(x_offset, y_offset, &Bitmap);
+                win32_window_dimensions Dimensions = GetWindowDimensions(WindowHandle);
+                Win32UpdateWindow(DeviceContext, Dimensions.Width, Dimensions.Height, 0, 0, WindowWidth, WindowHeight, &Bitmap);
                 y_offset += 1;
                 x_offset += 1;
             }
