@@ -29,21 +29,19 @@ INTERNAL void Win32RenderWeirdGradient(int XOffset, int YOffset, int width, int 
     uint8_t *Row = (uint8_t *)BitmapMemory;
     for (int y = 0; y < BitmapHeight; y++)
     {
-        uint8_t *Pixel = (uint8_t *)Row;
+        uint32_t *Pixel = (uint32_t *)Row;
         for (int x = 0; x < BitmapWidth; x++)
         {
             // INFO(ARNAV): R is at last because the format is little endian.
             // 00 00 00 00
             // bb gg rr xx
-            *Pixel = (uint8_t)(x + XOffset);
-            ++Pixel;
-            *Pixel = (uint8_t)(y + YOffset);
-            ++Pixel;
-            *Pixel = 0x88;
-            ++Pixel;
-            *Pixel = 0x00;
-            ++Pixel;
+            // uint8_t Green = ((x) * 255) / BitmapWidth;
+            // uint8_t Blue = ((y) * 255) / BitmapHeight;
+            uint8_t Green = ((x * 255)) / BitmapWidth;
+            uint8_t Blue = ((y * 255)) / BitmapHeight;
+            *Pixel++ = (0x66 | (Green << 8) | (Blue << 8));
         }
+
         Row += Pitch;
     }
 }
@@ -66,7 +64,11 @@ INTERNAL void Win32ResizeDIBSection(int width, int height)
     BitmapInfo.bmiHeader.biBitCount = 32;                       // INFO(ARNAV): Actually 24 bits are required 8 bits for each R, G, B but 32 bits are marked for it to be DWORD alligned which improves performance, The extra 8 bits are unused or can store an alpha channel for transparency.
     BitmapInfo.bmiHeader.biCompression = BI_RGB;                // INFO(ARNAV): This is used to store what is the compression method used for frame buffer
 
-    // QUESTION(UNSOLVED): What does negative biHeight means?
+    // QUESTION(SOLVED): What does negative biHeight means?
+    // ANSWER(-Height): When biHeight is negative, the bitmap is a top-down DIB This means that the origin of
+    // ANSWER(CONTINUED) the bitmap is the upper-left corner, and the bitmap is stored in memory starting from
+    // ANSWER(CONTINUED) the top row to the bottom row.
+    // ANSWER(+Height): When biHeight is positive, the bitmap is a bottom-up DIB This means that the origin of the bitmap is the upper-left corner
 
     int BytesPerPixel = 4;
     // INFO(lpAddress): 0 means we don't care where we get the memory.
