@@ -1,12 +1,34 @@
 #include <stdio.h>
 #include <windows.h>
 #include <stdint.h>
+#include <Xinput.h>
 
 #include "./include/definitions.h"
 #include "./include/win32_window_dimensions.h"
 #include "./include/Functions/GetWindowDimensions.h"
 
 using namespace std;
+
+// XINPUT is a library that allows communication with Xbox controllers.
+// It provides functions to handle input from Xbox 360 and Xbox One controllers.
+// XINPUT supports features such as reading controller states, handling button presses,
+// detecting connected controllers, and managing controller vibration (rumble).
+// ---
+// When you see someone saying "XInput shows in DirectInput,"
+// it means that an XInput-compatible device (such as an Xbox controller) is recognized by the DirectInput API
+// ---
+// When you see "XInput shows in DirectInput," it means that an
+// XInput-compatible device (such as an Xbox controller) is recognized by the DirectInput API.
+// However, there are some limitations when using XInput devices through DirectInput
+// ---
+// It shows up in Direct Input but has limitations:
+// - You can't send rumble (vibration) messages directly.
+// - You can't get an audio handle to the controllers.
+
+// There are two methods to receive messages from the controller:
+// 1. Polling: Continuously check for changes from the controller at a fixed rate.
+// 2. Interrupts: The controller sends signals to update the screen when there is a change.
+// The XInput API requires polling for inputs rather than using interrupts.
 
 // Method 2 of closing window
 GLOBAL_VARIABLE bool GlobalRunning = true;
@@ -27,8 +49,38 @@ struct win32_offscreen_buffer
 
 GLOBAL_VARIABLE win32_offscreen_buffer Bitmap = {0};
 
-// INFO(ARNAV) DIB = Device Independent Bitmap
+// ! By using typedef and creating function pointers, this code achieves dynamic linking or runtime flexibility
+// ! You can load the XInputGetState function from a DLL dynamically at runtime using LoadLibrary and GetProcAddress
+// INFO(Stubs): Stubs are function that are like safegaurd when required function is not present.
+// INFO(ARNAV): These lines create new types (x_input_get_state and x_input_set_state) that represent the function signatures of XInputGetState and XInputSetState.
+// The parameters are the same as the original XInputGetState and XInputSetState functions.
 
+#define X_INPUT_GET_STATE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_STATE *pState)
+typedef X_INPUT_GET_STATE(x_input_get_state);
+X_INPUT_GET_STATE(XInputGetStateStub)
+{
+    return 0;
+}
+GLOBAL_VARIABLE x_input_get_state *XInputGetState_ = XInputGetStateStub;
+
+#define X_INPUT_SET_STATE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_STATE *pState)
+typedef X_INPUT_SET_STATE(x_input_set_state);
+X_INPUT_SET_STATE(XInputSetStateStub)
+{
+    return 0;
+}
+GLOBAL_VARIABLE x_input_set_state *XInputSetState_ = XInputSetStateStub;
+
+// GLOBAL_VARIABLE X_INPUT_SET_STATE *XInputSetState_;
+#define XInputGetState XInputGetState_;
+#define XInputSetState XInputSetState_;
+
+// INFO(LoadLibrary): This is the function provided by the windows to load dll dynamically.
+
+// INFO(XINPUTSTATE): (XInputGetState_ and XInputSetState_) are pointers to functions that match the x_input_get_state and x_input_set_state typedefs, respectively
+// INFO(XINPUTSTATE): These global variables can later be assigned to point to the actual XInputGetState and XInputSetState functions or to alternative implementations.
+
+// INFO(ARNAV) DIB = Device Independent Bitmap
 INTERNAL void
 Win32RenderWeirdGradient(int XOffset, int YOffset, win32_offscreen_buffer *Bitmap)
 {
@@ -44,8 +96,8 @@ Win32RenderWeirdGradient(int XOffset, int YOffset, win32_offscreen_buffer *Bitma
             uint8_t Blue = (((y + YOffset) * 255));
             // uint8_t Green = (((x + XOffset) * 255)) / Bitmap->Width;
             // uint8_t Blue = (((y + YOffset) * 255)) / Bitmap->Height;
-            // *Pixel++ = (0xa1 | (Green << 16) | (Blue << 16));
-            *Pixel++ = (0xa1 | (Green << 16) | (Blue << 8));
+            // *Pixel++ = (0xa1 | (Green <<  16) | (Blue << 16));
+            *Pixel++ = (0x00 | (Green << 16) | (Blue << 16));
         }
 
         Row += Pitch;
@@ -89,9 +141,14 @@ INTERNAL void Win32UpdateWindow(HDC DeviceContext, int WindowWidth, int WindowHe
                   Bitmap->Memory, &Bitmap->Info, DIB_RGB_COLORS, SRCCOPY);
 }
 
+GLOBAL_VARIABLE int x_offset = 0;
+GLOBAL_VARIABLE int y_offset = 0;
+
 LRESULT MainWindowCallback(HWND Window, UINT Message, WPARAM wParam, LPARAM lParam)
 {
     LRESULT result = 0;
+
+    static int time;
 
     switch (Message)
     {
@@ -120,6 +177,45 @@ LRESULT MainWindowCallback(HWND Window, UINT Message, WPARAM wParam, LPARAM lPar
         GlobalRunning = false; // Method 2 for closing window
         OutputDebugStringA("WM_CLOSE\n");
         break;
+    }
+    case WM_SYSKEYUP:
+    {
+    }
+    case WM_SYSKEYDOWN:
+    {
+    }
+    case WM_KEYDOWN:
+    {
+    }
+    case WM_KEYUP:
+    {
+        uint32_t VirtalKeyCode = wParam;
+        bool wasDown = ((lParam & (1 << 30)) != 0);
+        bool isDown = ((lParam & (1 << 31)) != 0);
+        if (wasDown)
+            time += 1;
+        if (!wasDown && time != 1)
+            time -= 1;
+        if (VirtalKeyCode == 0x53) // o
+        {
+            printf("S\n");
+            y_offset -= 1 * time;
+        }
+        else if (VirtalKeyCode == 0x57)
+        {
+            printf("W\n");
+            y_offset += 1 * time;
+        }
+        if (VirtalKeyCode == 0x41)
+        {
+            printf("A\n");
+            x_offset -= 1 * time;
+        }
+        else if (VirtalKeyCode == 0x44)
+        {
+            printf("D\n");
+            x_offset += 1 * time;
+        }
     }
     case WM_ACTIVATEAPP:
     {
@@ -160,13 +256,18 @@ LRESULT MainWindowCallback(HWND Window, UINT Message, WPARAM wParam, LPARAM lPar
 int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR CommandLine, int SHhwCode)
 {
 
-    // AllocConsole();
-    // freopen("CONOUT$", "w", stdout); // Redirect stdout to console
-    // freopen("CONOUT$", "w", stderr); // Redirect stderr to console
-    // printf("Console initialized\n");
+    AllocConsole();
+    freopen("CONOUT$", "w", stdout); // Redirect stdout to console
+    freopen("CONOUT$", "w", stderr); // Redirect stderr to console
+    printf("Console initialized\n");
 
-    int test[1024 * 1024 * 2] = {0};
     WNDCLASS WindowClass = {0};
+    // ! In Simple terms steps for creating a window are:
+    // 1. Make a window class
+    // 1.1 Make and add window procedure to window class.
+    // 2. Register that class
+    // 3. Make window handle from that class
+    // 4. If there is a handle present then present start message loop either with PeekMessage or GetMessage (not sure if it was called GetMessage)
 
     // INFO(HREDRAW): This option says that if we resize the window 'horizontally' then
     // INFO(CONTINUED): whole window should repaint, instead of painting only the new
@@ -187,7 +288,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR Command
         HWND WindowHandle = CreateWindowEx(
             0,
             WindowClass.lpszClassName,
-            "Making Game",
+            "Making Game in Windows",
             WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_SIZEBOX | WS_SYSMENU | WS_MAXIMIZEBOX,
             CW_USEDEFAULT, CW_USEDEFAULT,
             1024, 1024 * 9 / 16,
@@ -197,8 +298,6 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR Command
         {
             printf("Window handle created successfully");
             MSG Message;
-            int x_offset = 0;
-            int y_offset = 0;
 
             HDC DeviceContext = GetDC(WindowHandle);
             RECT ClientRect;
@@ -219,11 +318,32 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR Command
                     DispatchMessage(&Message);
                 }
 
+                for (DWORD ControllerIndex = 0; ControllerIndex < 4; ControllerIndex += 1)
+                {
+                    XINPUT_STATE ControllerState;
+                    if (XInputGetState_(ControllerIndex, &ControllerState) == ERROR_SUCCESS)
+                    {
+                        bool DPadUp = (ControllerState.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_UP);
+                        bool DPadDown = (ControllerState.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_DOWN);
+                        bool DPadLeft = (ControllerState.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_LEFT);
+                        bool DPadRight = (ControllerState.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_RIGHT);
+                        bool Start = (ControllerState.Gamepad.wButtons & XINPUT_GAMEPAD_START);
+                        bool Back = (ControllerState.Gamepad.wButtons & XINPUT_GAMEPAD_BACK);
+                        bool LeftShoulder = (ControllerState.Gamepad.wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER);
+                        bool RightShoulder = (ControllerState.Gamepad.wButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER);
+                        bool AButton = (ControllerState.Gamepad.wButtons & XINPUT_GAMEPAD_A);
+                        bool BButton = (ControllerState.Gamepad.wButtons & XINPUT_GAMEPAD_B);
+                        bool XButton = (ControllerState.Gamepad.wButtons & XINPUT_GAMEPAD_X);
+                        bool YButton = (ControllerState.Gamepad.wButtons & XINPUT_GAMEPAD_Y);
+
+                        int StickX = ControllerState.Gamepad.sThumbLX;
+                        int StickY = ControllerState.Gamepad.sThumbLY;
+                    }
+                }
+
                 Win32RenderWeirdGradient(x_offset, y_offset, &Bitmap);
                 win32_window_dimensions Dimensions = GetWindowDimensions(WindowHandle);
                 Win32UpdateWindow(DeviceContext, Dimensions.Width, Dimensions.Height, 0, 0, WindowWidth, WindowHeight, &Bitmap);
-                y_offset += 1;
-                x_offset += 1;
             }
         }
         else

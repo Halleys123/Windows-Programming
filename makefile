@@ -36,4 +36,4 @@ msvc_atlmfc_lib = "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/To
 
 # Commands
 build:
-	cl main.cpp -F10485760 /Fo:./bin/program.obj /Fe:program.exe /I$(msvc_include) /I$(msvc_atlmfc_include) /I$(kit_include_1) /I$(kit_include_2) /I$(kit_include_3) /I$(kit_include_4) /I$(kit_include_5) /link /LIBPATH:$(msvc_lib) /LIBPATH:$(msvc_atlmfc_lib) /LIBPATH:$(kit_lib_1) /LIBPATH:$(kit_lib_2) User32.lib Gdi32.lib /OUT:./bin/program.exe /ENTRY:WinMainCRTStartup /SUBSYSTEM:WINDOWS
+	cl main.cpp /Fo:./bin/program.obj /Fe:program.exe /I$(msvc_include) /I$(msvc_atlmfc_include) /I$(kit_include_1) /I$(kit_include_2) /I$(kit_include_3) /I$(kit_include_4) /I$(kit_include_5) /link /LIBPATH:$(msvc_lib) /LIBPATH:$(msvc_atlmfc_lib) /LIBPATH:$(kit_lib_1) /LIBPATH:$(kit_lib_2) User32.lib Gdi32.lib Xinput.lib /OUT:./bin/program.exe /ENTRY:WinMainCRTStartup /SUBSYSTEM:WINDOWS
