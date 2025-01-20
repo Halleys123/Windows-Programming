@@ -33,6 +33,7 @@ using namespace std;
 
 // Method 2 of closing window
 GLOBAL_VARIABLE bool GlobalRunning = true;
+GLOBAL_VARIABLE LPDIRECTSOUNDBUFFER GlobalSecondaryBuffer;
 
 // TODO(ARNAV:DONE) note all answers in physical notes as well.
 // QUESTION(SOLVED): What is the use of these three (BitmapInfo ,BitmapMemory, BitmapHandle)?
@@ -92,13 +93,14 @@ DIRECT_SOUND_CREATE(DirectSoundCreateStub)
     return ERROR_DEVICE_NOT_AVAILABLE;
 }
 
+// COM - Component Object Model
 INTERNAL void Win32LoadSound(HWND Window, int32_t buffer_size, int32_t SamplePerSec)
 {
     direct_sound_create *DirectSoundCreate_ = DirectSoundCreateStub;
     HMODULE SoundLib = LoadLibrary("dsound.dll");
     if (SoundLib)
     {
-        printf("SOUND: Sound Libarary found: Game will be able to play sound.\n");
+        printf("SOUND: Sound Library found: Game will be able to play sound.\n");
         DirectSoundCreate_ = (direct_sound_create *)GetProcAddress(SoundLib, "DirectSoundCreate");
         // DIRECTSOUND *DirectSound;
         LPDIRECTSOUND DirectSound;
@@ -109,10 +111,10 @@ INTERNAL void Win32LoadSound(HWND Window, int32_t buffer_size, int32_t SamplePer
             WaveFormat.wFormatTag = WAVE_FORMAT_PCM;
             WaveFormat.nChannels = 2;
             WaveFormat.nSamplesPerSec = SamplePerSec;
+            WaveFormat.wBitsPerSample = 16;
             WaveFormat.nBlockAlign = (WaveFormat.nChannels * WaveFormat.wBitsPerSample) / 8;
             WaveFormat.nAvgBytesPerSec = WaveFormat.nSamplesPerSec * WaveFormat.nBlockAlign;
-            WaveFormat.wBitsPerSample = 16;
-            WaveFormat.cbSize;
+            WaveFormat.cbSize = 0; // Set cbSize to 0 for PCM format
 
             if (SUCCEEDED(DirectSound->SetCooperativeLevel(Window, DSSCL_PRIORITY)))
             {
@@ -127,33 +129,37 @@ INTERNAL void Win32LoadSound(HWND Window, int32_t buffer_size, int32_t SamplePer
                     printf("SOUND: Sound Buffer created.\n");
                     if (SUCCEEDED(PrimaryBuffer->SetFormat(&WaveFormat)))
                     {
-                        printf("SOUND: Format set succesfully.\n");
+                        printf("SOUND: Format set successfully.\n");
                     }
-                    else
-                    {
-                    }
+                }
+
+                BufferDescription.dwSize = sizeof(BufferDescription);
+                BufferDescription.dwFlags = DSBCAPS_GLOBALFOCUS; // Use DSBCAPS_GLOBALFOCUS for secondary buffer
+                BufferDescription.dwBufferBytes = buffer_size;
+                BufferDescription.lpwfxFormat = &WaveFormat;
+
+                if (SUCCEEDED(DirectSound->CreateSoundBuffer(&BufferDescription, &GlobalSecondaryBuffer, 0)))
+                {
+                    printf("SOUND: Secondary sound buffer set successfully\n");
                 }
                 else
                 {
+                    printf("SOUND: Failed to create secondary sound buffer\n");
                 }
             }
             else
             {
-            }
-
-            DSBUFFERDESC BufferDescription = {};
-
-            BufferDescription.dwSize = sizeof(BufferDescription);
-            BufferDescription.dwFlags = DSBCAPS_PRIMARYBUFFER;
-            BufferDescription.dwBufferBytes = buffer_size;
-            BufferDescription.lpwfxFormat = &WaveFormat;
-
-            LPDIRECTSOUNDBUFFER SecondaryBuffer;
-            if (SUCCEEDED(DirectSound->CreateSoundBuffer(&BufferDescription, &SecondaryBuffer, 0)))
-            {
-                printf("SOUND: Secondary sound buffer set succefully\n");
+                printf("SOUND: Failed to set cooperative level\n");
             }
         }
+        else
+        {
+            printf("SOUND: Failed to create DirectSound object\n");
+        }
+    }
+    else
+    {
+        printf("SOUND: Failed to load dsound.dll\n");
     }
 }
 
@@ -179,29 +185,7 @@ Win32RenderWeirdGradient(int XOffset, int YOffset, win32_offscreen_buffer *Bitma
             // uint8_t Green = (((x + XOffset) * 255)) / Bitmap->Width;
             // uint8_t Blue = (((y + YOffset) * 255)) / Bitmap->Height;
             // *Pixel++ = (0xa1 | (Green <<  16) | (Blue << 16));
-            *Pixel++ = (0x88 | (Green << 16) | (Blue << 8));
-        }
-
-        Row += Pitch;
-    }
-}
-INTERNAL void Win32MirronImage(int XOffset, int YOffset, win32_offscreen_buffer *Bitmap)
-{
-    int Pitch = Bitmap->Width * Bitmap->BytesPerPixel;
-
-    uint8_t *Row = (uint8_t *)Bitmap->Memory;
-    for (int y = 0; y < Bitmap->Height; y++)
-    {
-        uint32_t *Pixel = (uint32_t *)Row;
-        for (int x = 0; x < Bitmap->Width; x++)
-        {
-            // INFO(ARNAV): R is at last because the format is little endian.
-            uint8_t Green = ((x + XOffset) * 255) / Bitmap->Width;
-            uint8_t Blue = ((y + YOffset) * 255) / Bitmap->Height;
-            // uint8_t Green = (((x + XOffset) * 255)) / Bitmap->Width;
-            // uint8_t Blue = (((y + YOffset) * 255)) / Bitmap->Height;
-            // *Pixel++ = (0xa1 | (Green <<  16) | (Blue << 16));
-            *Pixel++ = (0x88 | (Green << 16) | (Blue << 8));
+            *Pixel++ = (0x88 << 6 | (Green << 10) | (Blue << 10));
         }
 
         Row += Pitch;
@@ -385,6 +369,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR Command
     freopen("CONOUT$", "w", stdout); // Redirect stdout to console
     freopen("CONOUT$", "w", stderr); // Redirect stderr to console
     printf("Console initialized\n");
+
     Win32LoadXInput();
     WNDCLASS WindowClass = {0};
     // ! In Simple terms steps for creating a window are:
@@ -404,6 +389,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR Command
     WindowClass.lpfnWndProc = MainWindowCallback;
     WindowClass.hInstance = hInstance;
     WindowClass.lpszClassName = "Game Development";
+    // WindowClass.hIcon = LoadIcon(NULL, IDI_WINLOGO);
 
     printf("Window class setup complete.\n");
     if (RegisterClass(&WindowClass))
@@ -421,7 +407,6 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR Command
 
         if (WindowHandle)
         {
-            Win32LoadSound(WindowHandle, 48000, 48000);
 
             printf("Window handle created successfully");
             MSG Message;
@@ -437,7 +422,23 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR Command
             int y_offset = 0;
             int x_acc = 0;
             int y_acc = 0;
+
             int acc_limit = 1000;
+            int SquareWaveCounter = 0, ToneHz = 256, SamplesPerSecond = 48000;
+            uint32_t RunningSampleIndex = 0;
+            int SquareWavePeriod = SamplesPerSecond / ToneHz;
+            int BytesPerSample = sizeof(int16_t);
+            int SecondaryBufferSize = SamplesPerSecond * BytesPerSample; // 2 seconds buffer size
+
+            Win32LoadSound(WindowHandle, SamplesPerSecond, SecondaryBufferSize);
+            if (GlobalSecondaryBuffer)
+            {
+                GlobalSecondaryBuffer->Play(0, 0, DSBPLAY_LOOPING);
+            }
+            else
+            {
+                printf("SOUND: GlobalSecondaryBuffer is not initialized\n");
+            }
 
             while (GlobalRunning)
             {
@@ -450,6 +451,9 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR Command
                     TranslateMessage(&Message);
                     DispatchMessage(&Message);
                 }
+                Win32RenderWeirdGradient(x_offset, y_offset, &Bitmap);
+                win32_window_dimensions Dimensions = GetWindowDimensions(WindowHandle);
+                Win32UpdateWindow(DeviceContext, Dimensions.Width, Dimensions.Height, 0, 0, WindowWidth, WindowHeight, &Bitmap);
 
                 for (DWORD ControllerIndex = 0; ControllerIndex < 4; ControllerIndex += 1)
                 {
@@ -513,11 +517,82 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR Command
                 x_offset += x_acc / 50;
                 y_offset += y_acc / 50;
 
-                // printf("x_offset: %d\ny_offset: %d\nx_acc: %d\ny_acc: %d\n", x_offset, y_offset, x_acc, y_acc);
+                DWORD PlayCursor;
+                DWORD WriteCursor;
+                if (GlobalSecondaryBuffer && SUCCEEDED(GlobalSecondaryBuffer->GetCurrentPosition(&PlayCursor, &WriteCursor)))
+                {
+                    DWORD BytesToLock = (RunningSampleIndex * BytesPerSample * 2) % SecondaryBufferSize;
+                    DWORD BytesToWrite;
+                    if (BytesToLock > PlayCursor)
+                    {
+                        BytesToWrite = SecondaryBufferSize - BytesToLock + PlayCursor;
+                    }
+                    else
+                    {
+                        BytesToWrite = PlayCursor - BytesToLock;
+                    }
 
-                Win32RenderWeirdGradient(x_offset, y_offset, &Bitmap);
-                win32_window_dimensions Dimensions = GetWindowDimensions(WindowHandle);
-                Win32UpdateWindow(DeviceContext, Dimensions.Width, Dimensions.Height, 0, 0, WindowWidth, WindowHeight, &Bitmap);
+                    // Ensure BytesToWrite does not exceed the buffer size
+                    if (BytesToWrite > SecondaryBufferSize)
+                    {
+                        BytesToWrite = SecondaryBufferSize;
+                    }
+
+                    if (BytesToWrite == 0)
+                    {
+                        continue;
+                    }
+
+                    printf("PlayCursor: %lu, WriteCursor: %lu, BytesToLock: %lu, BytesToWrite: %lu\n", PlayCursor, WriteCursor, BytesToLock, BytesToWrite);
+
+                    void *Region1;
+                    DWORD Region1Size;
+                    void *Region2;
+                    DWORD Region2Size;
+
+                    HRESULT LockResult = GlobalSecondaryBuffer->Lock(BytesToLock, BytesToWrite,
+                                                                     &Region1, &Region1Size,
+                                                                     &Region2, &Region2Size,
+                                                                     0);
+                    if (SUCCEEDED(LockResult))
+                    {
+                        DWORD Region1SampleCount = Region1Size / BytesPerSample;
+                        int16_t *SampleOut = (int16_t *)Region1;
+                        for (DWORD SampleIndex = 0; SampleIndex < Region1SampleCount; SampleIndex++)
+                        {
+                            if (SquareWaveCounter == 0)
+                            {
+                                SquareWaveCounter = SquareWavePeriod;
+                            }
+                            int16_t SampleWave = ((RunningSampleIndex / (SquareWavePeriod / 2)) % 2) ? 4000 : -4000;
+                            *SampleOut++ = SampleWave;
+                            *SampleOut++ = SampleWave;
+                            --SquareWaveCounter;
+                            ++RunningSampleIndex;
+                        }
+
+                        DWORD Region2SampleCount = Region2Size / BytesPerSample;
+                        SampleOut = (int16_t *)Region2;
+                        for (DWORD SampleIndex = 0; SampleIndex < Region2SampleCount; SampleIndex++)
+                        {
+                            if (SquareWaveCounter == 0)
+                            {
+                                SquareWaveCounter = SquareWavePeriod;
+                            }
+                            int16_t SampleWave = ((RunningSampleIndex / (SquareWavePeriod / 2)) % 2) ? 16009 : -10000;
+                            *SampleOut++ = SampleWave;
+                            *SampleOut++ = SampleWave;
+                            --SquareWaveCounter;
+                            ++RunningSampleIndex;
+                        }
+
+                        GlobalSecondaryBuffer->Unlock(Region1, Region1Size, Region2, Region2Size);
+                    }
+                    else
+                    {
+                        printf("SOUND: Failed to lock secondary buffer, HRESULT: 0x%08lx\n", LockResult);
+                    }
+                }
             }
         }
         else
