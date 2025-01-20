@@ -180,7 +180,7 @@ Win32RenderWeirdGradient(int XOffset, int YOffset, win32_offscreen_buffer *Bitma
             // uint8_t Blue = (((y + YOffset) * 255)) / Bitmap->Height;
             // *Pixel++ = (0xa1 | (Green <<  16) | (Blue << 16));
             *Pixel++ = (0x88 | (Green << 16) | (Blue << 8));
-                }
+        }
 
         Row += Pitch;
     }
