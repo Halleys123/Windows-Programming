@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <stdint.h>
 #include <Xinput.h>
+#include <Dsound.h>
 
 #include "./include/definitions.h"
 #include "./include/win32_window_dimensions.h"
@@ -59,7 +60,7 @@ GLOBAL_VARIABLE win32_offscreen_buffer Bitmap = {0};
 typedef X_INPUT_GET_STATE(x_input_get_state);
 X_INPUT_GET_STATE(XInputGetStateStub)
 {
-    return 0;
+    return ERROR_DEVICE_NOT_CONNECTED;
 }
 GLOBAL_VARIABLE x_input_get_state *XInputGetState_ = XInputGetStateStub;
 
@@ -67,13 +68,94 @@ GLOBAL_VARIABLE x_input_get_state *XInputGetState_ = XInputGetStateStub;
 typedef X_INPUT_SET_STATE(x_input_set_state);
 X_INPUT_SET_STATE(XInputSetStateStub)
 {
-    return 0;
+    return ERROR_DEVICE_NOT_CONNECTED;
 }
 GLOBAL_VARIABLE x_input_set_state *XInputSetState_ = XInputSetStateStub;
 
-// GLOBAL_VARIABLE X_INPUT_SET_STATE *XInputSetState_;
-#define XInputGetState XInputGetState_;
-#define XInputSetState XInputSetState_;
+INTERNAL void Win32LoadXInput()
+{
+    HMODULE XInputLibrary = LoadLibrary("xinput1_4.dll");
+    if (!XInputLibrary)
+        XInputLibrary = LoadLibrary("xinput1_3.dll");
+
+    if (XInputLibrary)
+    {
+        XInputGetState_ = (x_input_get_state *)GetProcAddress(XInputLibrary, "XInputGetState");
+        XInputSetState_ = (x_input_set_state *)GetProcAddress(XInputLibrary, "XInputSetState");
+    }
+}
+
+#define DIRECT_SOUND_CREATE(name) HRESULT WINAPI name(LPGUID lpGuid, LPDIRECTSOUND *ppDS, LPUNKNOWN pUnkOuter)
+typedef DIRECT_SOUND_CREATE(direct_sound_create);
+DIRECT_SOUND_CREATE(DirectSoundCreateStub)
+{
+    return ERROR_DEVICE_NOT_AVAILABLE;
+}
+
+INTERNAL void Win32LoadSound(HWND Window, int32_t buffer_size, int32_t SamplePerSec)
+{
+    direct_sound_create *DirectSoundCreate_ = DirectSoundCreateStub;
+    HMODULE SoundLib = LoadLibrary("dsound.dll");
+    if (SoundLib)
+    {
+        printf("SOUND: Sound Libarary found: Game will be able to play sound.\n");
+        DirectSoundCreate_ = (direct_sound_create *)GetProcAddress(SoundLib, "DirectSoundCreate");
+        // DIRECTSOUND *DirectSound;
+        LPDIRECTSOUND DirectSound;
+        if (DirectSoundCreate_ && SUCCEEDED(DirectSoundCreate_(0, &DirectSound, 0)))
+        {
+            printf("SOUND: SoundCreate working...\n");
+            WAVEFORMATEX WaveFormat = {};
+            WaveFormat.wFormatTag = WAVE_FORMAT_PCM;
+            WaveFormat.nChannels = 2;
+            WaveFormat.nSamplesPerSec = SamplePerSec;
+            WaveFormat.nBlockAlign = (WaveFormat.nChannels * WaveFormat.wBitsPerSample) / 8;
+            WaveFormat.nAvgBytesPerSec = WaveFormat.nSamplesPerSec * WaveFormat.nBlockAlign;
+            WaveFormat.wBitsPerSample = 16;
+            WaveFormat.cbSize;
+
+            if (SUCCEEDED(DirectSound->SetCooperativeLevel(Window, DSSCL_PRIORITY)))
+            {
+                printf("SOUND: SetCooperativeLevel complete.\n");
+                DSBUFFERDESC BufferDescription = {};
+                BufferDescription.dwSize = sizeof(BufferDescription);
+                BufferDescription.dwFlags = DSBCAPS_PRIMARYBUFFER;
+
+                LPDIRECTSOUNDBUFFER PrimaryBuffer;
+                if (SUCCEEDED(DirectSound->CreateSoundBuffer(&BufferDescription, &PrimaryBuffer, 0)))
+                {
+                    printf("SOUND: Sound Buffer created.\n");
+                    if (SUCCEEDED(PrimaryBuffer->SetFormat(&WaveFormat)))
+                    {
+                        printf("SOUND: Format set succesfully.\n");
+                    }
+                    else
+                    {
+                    }
+                }
+                else
+                {
+                }
+            }
+            else
+            {
+            }
+
+            DSBUFFERDESC BufferDescription = {};
+
+            BufferDescription.dwSize = sizeof(BufferDescription);
+            BufferDescription.dwFlags = DSBCAPS_PRIMARYBUFFER;
+            BufferDescription.dwBufferBytes = buffer_size;
+            BufferDescription.lpwfxFormat = &WaveFormat;
+
+            LPDIRECTSOUNDBUFFER SecondaryBuffer;
+            if (SUCCEEDED(DirectSound->CreateSoundBuffer(&BufferDescription, &SecondaryBuffer, 0)))
+            {
+                printf("SOUND: Secondary sound buffer set succefully\n");
+            }
+        }
+    }
+}
 
 // INFO(LoadLibrary): This is the function provided by the windows to load dll dynamically.
 
@@ -92,12 +174,34 @@ Win32RenderWeirdGradient(int XOffset, int YOffset, win32_offscreen_buffer *Bitma
         for (int x = 0; x < Bitmap->Width; x++)
         {
             // INFO(ARNAV): R is at last because the format is little endian.
-            uint8_t Green = (((x + XOffset) * 255));
-            uint8_t Blue = (((y + YOffset) * 255));
+            uint8_t Green = ((x + XOffset) * 255) / Bitmap->Width;
+            uint8_t Blue = ((y + YOffset) * 255) / Bitmap->Height;
             // uint8_t Green = (((x + XOffset) * 255)) / Bitmap->Width;
             // uint8_t Blue = (((y + YOffset) * 255)) / Bitmap->Height;
             // *Pixel++ = (0xa1 | (Green <<  16) | (Blue << 16));
-            *Pixel++ = (0x00 | (Green << 16) | (Blue << 16));
+            *Pixel++ = (0x88 | (Green << 16) | (Blue << 8));
+        }
+
+        Row += Pitch;
+    }
+}
+INTERNAL void Win32MirronImage(int XOffset, int YOffset, win32_offscreen_buffer *Bitmap)
+{
+    int Pitch = Bitmap->Width * Bitmap->BytesPerPixel;
+
+    uint8_t *Row = (uint8_t *)Bitmap->Memory;
+    for (int y = 0; y < Bitmap->Height; y++)
+    {
+        uint32_t *Pixel = (uint32_t *)Row;
+        for (int x = 0; x < Bitmap->Width; x++)
+        {
+            // INFO(ARNAV): R is at last because the format is little endian.
+            uint8_t Green = ((x + XOffset) * 255) / Bitmap->Width;
+            uint8_t Blue = ((y + YOffset) * 255) / Bitmap->Height;
+            // uint8_t Green = (((x + XOffset) * 255)) / Bitmap->Width;
+            // uint8_t Blue = (((y + YOffset) * 255)) / Bitmap->Height;
+            // *Pixel++ = (0xa1 | (Green <<  16) | (Blue << 16));
+            *Pixel++ = (0x88 | (Green << 16) | (Blue << 8));
         }
 
         Row += Pitch;
@@ -141,14 +245,15 @@ INTERNAL void Win32UpdateWindow(HDC DeviceContext, int WindowWidth, int WindowHe
                   Bitmap->Memory, &Bitmap->Info, DIB_RGB_COLORS, SRCCOPY);
 }
 
-GLOBAL_VARIABLE int x_offset = 0;
-GLOBAL_VARIABLE int y_offset = 0;
+char keyPressed = 0b00000000;
 
 LRESULT MainWindowCallback(HWND Window, UINT Message, WPARAM wParam, LPARAM lParam)
 {
     LRESULT result = 0;
 
     static int time;
+
+    static bool left = true;
 
     switch (Message)
     {
@@ -180,42 +285,62 @@ LRESULT MainWindowCallback(HWND Window, UINT Message, WPARAM wParam, LPARAM lPar
     }
     case WM_SYSKEYUP:
     {
+        break;
     }
     case WM_SYSKEYDOWN:
     {
+        uint32_t VKCode = wParam;
+        if (VKCode == VK_F4)
+        {
+            // alt + f4 shortcut
+            PostQuitMessage(0);
+        }
     }
+    break;
     case WM_KEYDOWN:
     {
+        uint32_t VirtalKeyCode = wParam;
+
+        if (VirtalKeyCode == 0x53) // o
+        {
+            keyPressed |= 0b00000100;
+        }
+        else if (VirtalKeyCode == 0x57)
+        {
+            keyPressed |= 0b00001000;
+        }
+        if (VirtalKeyCode == 0x41)
+        {
+            keyPressed |= 0b00000010;
+        }
+        else if (VirtalKeyCode == 0x44)
+        {
+            keyPressed |= 0b00000001;
+        }
+
+        break;
     }
     case WM_KEYUP:
     {
         uint32_t VirtalKeyCode = wParam;
-        bool wasDown = ((lParam & (1 << 30)) != 0);
-        bool isDown = ((lParam & (1 << 31)) != 0);
-        if (wasDown)
-            time += 1;
-        if (!wasDown && time != 1)
-            time -= 1;
-        if (VirtalKeyCode == 0x53) // o
+
+        if (VirtalKeyCode == 0x53)
         {
-            printf("S\n");
-            y_offset -= 1 * time;
+            keyPressed &= !0b00000100;
         }
         else if (VirtalKeyCode == 0x57)
         {
-            printf("W\n");
-            y_offset += 1 * time;
+            keyPressed &= !0b00001000;
         }
         if (VirtalKeyCode == 0x41)
         {
-            printf("A\n");
-            x_offset -= 1 * time;
+            keyPressed &= !0b0000010;
         }
         else if (VirtalKeyCode == 0x44)
         {
-            printf("D\n");
-            x_offset += 1 * time;
+            keyPressed &= !0b00000001;
         }
+        break;
     }
     case WM_ACTIVATEAPP:
     {
@@ -260,7 +385,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR Command
     freopen("CONOUT$", "w", stdout); // Redirect stdout to console
     freopen("CONOUT$", "w", stderr); // Redirect stderr to console
     printf("Console initialized\n");
-
+    Win32LoadXInput();
     WNDCLASS WindowClass = {0};
     // ! In Simple terms steps for creating a window are:
     // 1. Make a window class
@@ -296,6 +421,8 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR Command
 
         if (WindowHandle)
         {
+            Win32LoadSound(WindowHandle, 48000, 48000);
+
             printf("Window handle created successfully");
             MSG Message;
 
@@ -305,6 +432,12 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR Command
 
             int WindowWidth = ClientRect.right - ClientRect.left;
             int WindowHeight = ClientRect.bottom - ClientRect.top;
+
+            int x_offset = 0;
+            int y_offset = 0;
+            int x_acc = 0;
+            int y_acc = 0;
+            int acc_limit = 1000;
 
             while (GlobalRunning)
             {
@@ -340,6 +473,47 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR Command
                         int StickY = ControllerState.Gamepad.sThumbLY;
                     }
                 }
+
+                if (keyPressed & (1 << 3))
+                {
+                    if (y_acc < acc_limit)
+                        y_acc += 1;
+                }
+                else if (keyPressed & (1 << 2))
+                {
+                    if (y_acc > -acc_limit)
+                        y_acc -= 1;
+                }
+                else
+                {
+                    if (y_acc > 0)
+                        y_acc -= 1;
+                    else if (y_acc < 0)
+                        y_acc += 1;
+                }
+
+                if (keyPressed & (1 << 1))
+                {
+                    if (x_acc < acc_limit)
+                        x_acc += 1;
+                }
+                else if (keyPressed & (1 << 0))
+                {
+                    if (x_acc > -acc_limit)
+                        x_acc -= 1;
+                }
+                else
+                {
+                    if (x_acc > 0)
+                        x_acc -= 1;
+                    else if (x_acc < 0)
+                        x_acc += 1;
+                }
+
+                x_offset += x_acc / 50;
+                y_offset += y_acc / 50;
+
+                // printf("x_offset: %d\ny_offset: %d\nx_acc: %d\ny_acc: %d\n", x_offset, y_offset, x_acc, y_acc);
 
                 Win32RenderWeirdGradient(x_offset, y_offset, &Bitmap);
                 win32_window_dimensions Dimensions = GetWindowDimensions(WindowHandle);
